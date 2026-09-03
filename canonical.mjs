@@ -1,4 +1,4 @@
-// actions/continuity-merge-guard/canonical.mjs
+// actions/stategate/canonical.mjs
 // Deterministic canonicalization + SHA-256, shared by check.mjs and
 // attribution.mjs. Algorithm is identical to conformance/pack-v1/harness.mjs
 // (same algorithm, proven deterministic) so this directory can be copied to any
@@ -29,6 +29,69 @@ export function canonicalize(v) {
     return `{${Object.keys(n).sort().map(k => `${JSON.stringify(k)}:${canonicalize(n[k])}`).join(',')}}`
   }
   return JSON.stringify(n)
+}
+
+// Canonical PR diff normalization for StateGate proof binding.
+//
+// Rules:
+// - Input must be a non-empty string.
+// - Transport line endings are normalized from CRLF/CR to LF.
+// - A missing terminal newline is normalized to exactly one terminal LF.
+// - Diff file and hunk order are preserved exactly as received.
+// - Patch text, paths, hunk headers, context, additions, deletions, mode lines,
+//   index lines, and binary patch markers are preserved.
+// - No semantic equivalence is inferred between different textual patches.
+// - Malformed input deterministically fails closed instead of being hashed.
+export function canonicalizeDiff(diffText) {
+  if (typeof diffText !== 'string') {
+    return { ok: false, reason: 'DIFF_MISSING', canonical_diff: null }
+  }
+  let normalized = diffText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  if (normalized.trim() === '') {
+    return { ok: false, reason: 'DIFF_MISSING', canonical_diff: null }
+  }
+  normalized = normalized.replace(/\n*$/, '\n')
+  const lines = normalized.split('\n')
+  if (!lines.some(line => line.startsWith('diff --git '))) {
+    return { ok: false, reason: 'DIFF_MALFORMED', canonical_diff: null }
+  }
+  for (const line of lines) {
+    if (line === '') continue
+    if (line.startsWith('diff --git ')) continue
+    if (line.startsWith('index ')) continue
+    if (line.startsWith('new file mode ')) continue
+    if (line.startsWith('deleted file mode ')) continue
+    if (line.startsWith('old mode ')) continue
+    if (line.startsWith('new mode ')) continue
+    if (line.startsWith('similarity index ')) continue
+    if (line.startsWith('dissimilarity index ')) continue
+    if (line.startsWith('rename from ')) continue
+    if (line.startsWith('rename to ')) continue
+    if (line.startsWith('copy from ')) continue
+    if (line.startsWith('copy to ')) continue
+    if (line.startsWith('--- ')) continue
+    if (line.startsWith('+++ ')) continue
+    if (line.startsWith('@@ ')) continue
+    if (line.startsWith('+')) continue
+    if (line.startsWith('-')) continue
+    if (line.startsWith(' ')) continue
+    if (line.startsWith('\\ No newline at end of file')) continue
+    if (line === 'GIT binary patch') continue
+    if (line === 'Binary files differ') continue
+    if (/^(literal|delta) [0-9]+$/.test(line)) continue
+    if (/^[A-Za-z0-9+/=]+$/.test(line)) continue
+    return { ok: false, reason: 'DIFF_MALFORMED', canonical_diff: null }
+  }
+  return { ok: true, reason: null, canonical_diff: normalized }
+}
+
+export function diffHash(diffText) {
+  const canonical = canonicalizeDiff(diffText)
+  if (!canonical.ok) return { ...canonical, diff_hash: null }
+  return {
+    ...canonical,
+    diff_hash: `sha256:${sha256Hex(canonical.canonical_diff)}`,
+  }
 }
 
 function rightRotate(v, a) {

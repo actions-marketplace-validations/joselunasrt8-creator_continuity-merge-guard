@@ -1,5 +1,5 @@
-name: 'ContinuityOS Merge Guard'
-description: 'Verifies PR attribution and merge eligibility for AI-authored changes.'
+name: "Continufy StateGate"
+description: "Govern repository state transitions. VALID | NULL | PROOF."
 
 inputs:
   repo:
@@ -49,6 +49,42 @@ inputs:
     description: 'Optional human operator id behind an agent-authored PR'
     required: false
     default: ''
+  pr-diff:
+    description: 'Optional exact PR diff text. When omitted, the action fetches the GitHub pull request diff for the evaluated head SHA.'
+    required: false
+    default: ''
+  github-token:
+    description: 'GitHub token used to fetch the pull request JSON and canonical diff when pr-diff is omitted.'
+    required: false
+    default: ${{ github.token }}
+  expected-diff-hash:
+    description: 'Optional prior sha256 diff hash. When supplied, the current canonical diff must match it.'
+    required: false
+    default: ''
+  expected-proof-hash:
+    description: 'Optional prior proof hash. When supplied, the current canonical validated object must match it.'
+    required: false
+    default: ''
+  expected-validated-object-hash:
+    description: 'Optional exact-object continuity hash. When supplied, post-validation object mutation fails closed.'
+    required: false
+    default: ''
+  require-review-approval:
+    description: "Set to 'true' to require deterministic review evidence bound to the validated head SHA."
+    required: false
+    default: 'false'
+  minimum-approvals:
+    description: 'Minimum number of distinct latest APPROVED reviews required when review binding is enabled.'
+    required: false
+    default: '1'
+  review-evidence:
+    description: 'Optional normalized review evidence JSON. When omitted and review approval is required, the action fetches pull request reviews from GitHub.'
+    required: false
+    default: ''
+  expected-review-evidence-hash:
+    description: 'Optional prior review evidence hash. When supplied, the current normalized review evidence must match it.'
+    required: false
+    default: ''
 
 outputs:
   result:
@@ -81,6 +117,18 @@ outputs:
   attribution_evidence_hash:
     description: 'sha256 of the canonicalized attribution evidence array'
     value: ${{ steps.merge-guard.outputs.attribution_evidence_hash }}
+  diff_hash:
+    description: 'sha256 of the canonical pull request diff'
+    value: ${{ steps.merge-guard.outputs.diff_hash }}
+  review_status:
+    description: 'Review binding status derived from the canonical decision'
+    value: ${{ steps.merge-guard.outputs.review_status }}
+  review_evidence_hash:
+    description: 'sha256 of canonical normalized review evidence when review binding is enabled'
+    value: ${{ steps.merge-guard.outputs.review_evidence_hash }}
+  approval_count:
+    description: 'Count of distinct latest APPROVED reviews bound to the validated head SHA'
+    value: ${{ steps.merge-guard.outputs.approval_count }}
 
 runs:
   using: 'composite'
@@ -102,8 +150,17 @@ runs:
         MERGE_GUARD_PR_LABELS: ${{ inputs.pr-labels }}
         MERGE_GUARD_COMMIT_TRAILERS: ${{ inputs.commit-trailers }}
         MERGE_GUARD_OPERATOR_ID: ${{ inputs.operator-id }}
+        MERGE_GUARD_PR_DIFF: ${{ inputs.pr-diff }}
+        MERGE_GUARD_GITHUB_TOKEN: ${{ inputs.github-token }}
+        MERGE_GUARD_EXPECTED_DIFF_HASH: ${{ inputs.expected-diff-hash }}
+        MERGE_GUARD_EXPECTED_PROOF_HASH: ${{ inputs.expected-proof-hash }}
+        MERGE_GUARD_EXPECTED_VALIDATED_OBJECT_HASH: ${{ inputs.expected-validated-object-hash }}
+        MERGE_GUARD_REQUIRE_REVIEW_APPROVAL: ${{ inputs.require-review-approval }}
+        MERGE_GUARD_MINIMUM_APPROVALS: ${{ inputs.minimum-approvals }}
+        MERGE_GUARD_REVIEW_EVIDENCE: ${{ inputs.review-evidence }}
+        MERGE_GUARD_EXPECTED_REVIEW_EVIDENCE_HASH: ${{ inputs.expected-review-evidence-hash }}
       run: node "${{ github.action_path }}/check.mjs"
-    - name: Upload merge guard proof
+    - name: Upload StateGate proof
       if: always()
       uses: actions/upload-artifact@v4
       with:
